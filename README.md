@@ -2,8 +2,6 @@
 
 Complete MERN stack application for Razorpay sub-merchant onboarding with KYC integration.
 
-> **Documentation:** [DOCUMENTATION.md](./DOCUMENTATION.md) | **Task Compliance:** [TASK_COMPLIANCE.md](./TASK_COMPLIANCE.md)
-
 ## Features
 
 - **Sub-Merchant Creation** – Create sub-merchants via Razorpay API (name, email, phone, business details)
