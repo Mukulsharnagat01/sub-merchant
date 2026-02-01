@@ -11,7 +11,7 @@ export const AuthProvider = ({ children }) => {
     // Check if user is logged in
     const token = localStorage.getItem('token');
     const savedUser = localStorage.getItem('user');
-    
+
     if (token && savedUser) {
       setUser(JSON.parse(savedUser));
     }
@@ -21,22 +21,22 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     const response = await authAPI.login({ email, password });
     const { data } = response.data;
-    
+
     localStorage.setItem('token', data.token);
     localStorage.setItem('user', JSON.stringify(data));
     setUser(data);
-    
+
     return data;
   };
 
   const register = async (name, email, password) => {
     const response = await authAPI.register({ name, email, password });
     const { data } = response.data;
-    
+
     localStorage.setItem('token', data.token);
     localStorage.setItem('user', JSON.stringify(data));
     setUser(data);
-    
+
     return data;
   };
 

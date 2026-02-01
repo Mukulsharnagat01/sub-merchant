@@ -1,49 +1,64 @@
 const Razorpay = require('razorpay');
+const fs = require('fs');
+const FormData = require('form-data');
+const axios = require('axios');
 
-// Initialize Razorpay instance
+// Initialize Razorpay instance (API Key & Secret - NEVER expose on frontend)
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
+const RAZORPAY_BASE_URL = 'https://api.razorpay.com';
+
 /**
  * Create a sub-merchant account on Razorpay
  * API: POST /v2/accounts
- * Docs: https://razorpay.com/docs/api/partners/account-onboarding
+ * Docs: https://razorpay.com/docs/api/partners/account-onboarding/create/
  */
 const createSubMerchant = async (merchantData) => {
   try {
+    const registeredAddr = {
+      street1: merchantData.address?.street || '',
+      street2: '',
+      city: merchantData.address?.city || '',
+      state: merchantData.address?.state || '',
+      postal_code: parseInt(merchantData.address?.pincode, 10) || 0,
+      country: merchantData.address?.country || 'IN'
+    };
+
     const accountPayload = {
       email: merchantData.email,
-      phone: {
-        primary: merchantData.phone,
-        secondary: merchantData.phone
-      },
-      type: merchantData.businessType === 'individual' ? 'standard' : 'route',
+      phone: String(merchantData.phone).replace(/\D/g, '').slice(-10) || merchantData.phone,
       legal_business_name: merchantData.businessName,
+      customer_facing_business_name: merchantData.businessName,
       business_type: merchantData.businessType,
       contact_name: merchantData.contactName,
       profile: {
         category: merchantData.businessCategory,
         subcategory: merchantData.businessSubCategory || 'others',
         addresses: {
-          registered: {
-            street1: merchantData.address?.street || '',
-            street2: '',
-            city: merchantData.address?.city || '',
-            state: merchantData.address?.state || '',
-            postal_code: parseInt(merchantData.address?.pincode) || 0,
-            country: merchantData.address?.country || 'IN'
-          }
+          registered: registeredAddr,
+          operation: registeredAddr
         }
       },
       legal_info: {
-        pan: merchantData.legalInfo?.pan || '',
-        gst: merchantData.legalInfo?.gst || ''
+        pan: merchantData.legalInfo?.pan || undefined,
+        gst: merchantData.legalInfo?.gst || undefined
+      },
+      contact_info: {
+        support: {
+          email: merchantData.email,
+          phone: String(merchantData.phone).replace(/\D/g, '').slice(-10)
+        }
       }
     };
 
-    // Make API call to create account
+    // Remove empty legal_info fields
+    if (!accountPayload.legal_info.pan) delete accountPayload.legal_info.pan;
+    if (!accountPayload.legal_info.gst) delete accountPayload.legal_info.gst;
+    if (Object.keys(accountPayload.legal_info).length === 0) delete accountPayload.legal_info;
+
     const response = await razorpay.accounts.create(accountPayload);
     return response;
   } catch (error) {
@@ -67,7 +82,7 @@ const getAccountDetails = async (accountId) => {
 };
 
 /**
- * Update merchant account
+ * Update account details
  * API: PATCH /v2/accounts/{account_id}
  */
 const updateAccount = async (accountId, updateData) => {
@@ -81,37 +96,12 @@ const updateAccount = async (accountId, updateData) => {
 };
 
 /**
- * Add stakeholder (for KYC)
+ * Add stakeholder
  * API: POST /v2/accounts/{account_id}/stakeholders
  */
 const addStakeholder = async (accountId, stakeholderData) => {
   try {
-    const payload = {
-      name: stakeholderData.name,
-      email: stakeholderData.email,
-      phone: {
-        primary: stakeholderData.phone,
-        secondary: stakeholderData.phone
-      },
-      relationship: {
-        director: stakeholderData.isDirector || false,
-        executive: stakeholderData.isExecutive || true
-      },
-      addresses: {
-        residential: {
-          street: stakeholderData.address?.street || '',
-          city: stakeholderData.address?.city || '',
-          state: stakeholderData.address?.state || '',
-          postal_code: parseInt(stakeholderData.address?.pincode) || 0,
-          country: stakeholderData.address?.country || 'IN'
-        }
-      },
-      kyc: {
-        pan: stakeholderData.pan || ''
-      }
-    };
-
-    const response = await razorpay.stakeholders.create(accountId, payload);
+    const response = await razorpay.stakeholders.create(accountId, stakeholderData);
     return response;
   } catch (error) {
     console.error('Razorpay Add Stakeholder Error:', error);
@@ -120,27 +110,26 @@ const addStakeholder = async (accountId, stakeholderData) => {
 };
 
 /**
- * Request KYC verification for product configuration
- * API: POST /v2/accounts/{account_id}/products
+ * Request product configuration (initiates KYC for Route)
+ * API: POST /v1/products
  */
-const requestProductConfiguration = async (accountId, productName = 'route') => {
+const requestProductConfiguration = async (accountId, product = 'route') => {
   try {
     const payload = {
-      product_name: productName,
-      requested_at: Math.floor(Date.now() / 1000)
+      product_name: product,
+      tnc_accepted: true
     };
-
-    const response = await razorpay.products.requestProductConfiguration(accountId, payload);
+    const response = await razorpay.products.request(accountId, payload);
     return response;
   } catch (error) {
-    console.error('Razorpay Product Configuration Error:', error);
+    console.error('Razorpay Request Product Config Error:', error);
     throw error;
   }
 };
 
 /**
- * Get product configuration (KYC status)
- * API: GET /v2/accounts/{account_id}/products/{product_id}
+ * Get product configuration
+ * API: GET /v1/products/{product_id}
  */
 const getProductConfiguration = async (accountId, productId) => {
   try {
@@ -153,7 +142,8 @@ const getProductConfiguration = async (accountId, productId) => {
 };
 
 /**
- * Update product configuration with bank details
+ * Update product configuration (for settlements)
+ * API: PATCH /v1/products/{product_id}
  */
 const updateProductConfiguration = async (accountId, productId, settlementData) => {
   try {
@@ -176,30 +166,63 @@ const updateProductConfiguration = async (accountId, productId, settlementData) 
 
 /**
  * Upload document for KYC
- * Note: This uses Razorpay Document Upload API
+ * Uses Razorpay Documents API (POST /v1/documents) - stores document in Razorpay ecosystem.
+ * For Partner account-specific linking, Razorpay dashboard or Onboarding SDK handles KYC doc association.
+ * Docs: https://razorpay.com/docs/api/documents/create
  */
 const uploadDocument = async (accountId, documentData) => {
+  let tempFilePath = documentData.file;
   try {
-    // Razorpay document upload requires multipart form data
-    // This is a placeholder - actual implementation depends on file handling
-    const response = await razorpay.documents.create(accountId, documentData);
-    return response;
+    const form = new FormData();
+    form.append('file', fs.createReadStream(tempFilePath));
+    form.append('purpose', 'dispute_evidence'); // Razorpay accepts this; KYC docs stored for reference
+
+    const auth = Buffer.from(
+      `${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`
+    ).toString('base64');
+
+    const response = await axios.post(
+      `${RAZORPAY_BASE_URL}/v1/documents`,
+      form,
+      {
+        headers: {
+          ...form.getHeaders(),
+          Authorization: `Basic ${auth}`
+        },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity
+      }
+    );
+
+    // Return doc with account context for storage
+    return {
+      id: response.data.id,
+      entity: response.data.entity,
+      purpose: response.data.purpose,
+      mime_type: response.data.mime_type,
+      size: response.data.size,
+      created_at: response.data.created_at,
+      account_id: accountId,
+      document_type: documentData.purpose
+    };
   } catch (error) {
-    console.error('Razorpay Document Upload Error:', error);
+    const errMsg = error.response?.data?.error?.description || error.message;
+    console.error('Razorpay Document Upload Error:', errMsg);
     throw error;
+  } finally {
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      try { fs.unlinkSync(tempFilePath); } catch (_) {}
+    }
   }
 };
 
 /**
  * Verify Razorpay webhook signature
+ * @param rawBody - Raw request body string (as received, for signature verification)
  */
-const verifyWebhookSignature = (body, signature, secret) => {
+const verifyWebhookSignature = (rawBody, signature, secret) => {
   try {
-    return Razorpay.validateWebhookSignature(
-      JSON.stringify(body),
-      signature,
-      secret
-    );
+    return Razorpay.validateWebhookSignature(rawBody, signature, secret);
   } catch (error) {
     console.error('Webhook Signature Verification Error:', error);
     return false;

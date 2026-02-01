@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+const fs = require('fs');
 const Merchant = require('../models/Merchant');
 const razorpayService = require('../services/razorpayService');
 
@@ -25,31 +25,29 @@ const initiateKyc = async (req, res, next) => {
       });
     }
 
-    // Add stakeholder for KYC
-    const { stakeholder } = req.body;
-    
-    if (stakeholder) {
-      try {
-        await razorpayService.addStakeholder(merchant.razorpayAccountId, stakeholder);
-      } catch (err) {
-        console.error('Failed to add stakeholder:', err.message);
-        // Continue anyway as stakeholder might already exist
-      }
-    }
+    const isDemoAccount = merchant.razorpayAccountId.startsWith('demo_');
 
-    // Request product configuration (initiates KYC)
-    let productConfig;
-    try {
-      productConfig = await razorpayService.requestProductConfiguration(
-        merchant.razorpayAccountId,
-        'route'
-      );
-    } catch (err) {
-      return res.status(400).json({
-        success: false,
-        message: 'Failed to initiate KYC',
-        error: err.error?.description || err.message
-      });
+    if (!isDemoAccount) {
+      // Add stakeholder for KYC (Razorpay only)
+      const { stakeholder } = req.body;
+      if (stakeholder) {
+        try {
+          await razorpayService.addStakeholder(merchant.razorpayAccountId, stakeholder);
+        } catch (err) {
+          console.error('Failed to add stakeholder:', err.message);
+        }
+      }
+
+      // Request product configuration (initiates KYC on Razorpay)
+      try {
+        const product = merchant.businessType === 'individual' ? 'payments' : 'route';
+        await razorpayService.requestProductConfiguration(merchant.razorpayAccountId, product);
+      } catch (err) {
+        return res.status(400).json({
+          success: false,
+          message: err.error?.description || err.message || 'Failed to initiate KYC'
+        });
+      }
     }
 
     // Update merchant status
@@ -62,11 +60,11 @@ const initiateKyc = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: 'KYC initiated successfully',
+      message: isDemoAccount ? 'KYC initiated (demo mode)' : 'KYC initiated successfully',
       data: {
         merchantId: merchant._id,
         kycStatus: merchant.kycStatus,
-        productConfig
+        productConfig: isDemoAccount ? { demo: true } : undefined
       }
     });
   } catch (error) {
@@ -90,41 +88,12 @@ const getKycStatus = async (req, res, next) => {
       });
     }
 
-    // Fetch latest status from Razorpay
-    let razorpayStatus = null;
-    if (merchant.razorpayAccountId) {
-      try {
-        razorpayStatus = await razorpayService.getAccountDetails(merchant.razorpayAccountId);
-        
-        // Update local status based on Razorpay status
-        const newStatus = razorpayService.mapKycStatus(razorpayStatus.status);
-        if (newStatus !== merchant.kycStatus) {
-          merchant.kycStatus = newStatus;
-          
-          if (newStatus === 'activated') {
-            merchant.kycDetails.verifiedAt = new Date();
-            merchant.isActive = true;
-          } else if (newStatus === 'rejected') {
-            merchant.kycDetails.rejectionReason = razorpayStatus.notes?.rejection_reason || 'KYC rejected';
-          } else if (newStatus === 'needs_clarification') {
-            merchant.kycDetails.clarificationReason = razorpayStatus.notes?.clarification_reason || 'Additional information required';
-          }
-          
-          await merchant.save();
-        }
-      } catch (err) {
-        console.error('Failed to fetch Razorpay status:', err.message);
-      }
-    }
-
     res.json({
       success: true,
       data: {
-        merchantId: merchant._id,
         kycStatus: merchant.kycStatus,
-        kycDetails: merchant.kycDetails,
         isActive: merchant.isActive,
-        razorpayStatus: razorpayStatus?.status || null
+        details: merchant.kycDetails
       }
     });
   } catch (error) {
@@ -133,7 +102,7 @@ const getKycStatus = async (req, res, next) => {
 };
 
 /**
- * @desc    Submit bank details for KYC
+ * @desc    Submit bank details for settlement
  * @route   POST /api/kyc/bank-details/:merchantId
  * @access  Private
  */
@@ -141,44 +110,35 @@ const submitBankDetails = async (req, res, next) => {
   try {
     const merchant = await Merchant.findById(req.params.merchantId);
 
-    if (!merchant) {
+    if (!merchant || !merchant.razorpayAccountId) {
       return res.status(404).json({
         success: false,
         message: 'Merchant not found'
       });
     }
 
-    const { accountNumber, ifscCode, beneficiaryName, productId } = req.body;
+    const { accountNumber, ifscCode, beneficiaryName } = req.body;
 
-    // Update bank details in Razorpay
-    if (merchant.razorpayAccountId && productId) {
-      try {
-        await razorpayService.updateProductConfiguration(
-          merchant.razorpayAccountId,
-          productId,
-          { accountNumber, ifscCode, beneficiaryName }
-        );
-      } catch (err) {
-        return res.status(400).json({
-          success: false,
-          message: 'Failed to update bank details on Razorpay',
-          error: err.error?.description || err.message
-        });
-      }
+    const isDemoAccount = merchant.razorpayAccountId.startsWith('demo_');
+
+    if (!isDemoAccount) {
+      const productConfig = await razorpayService.getProductConfiguration(
+        merchant.razorpayAccountId,
+        'route'
+      );
+      await razorpayService.updateProductConfiguration(
+        merchant.razorpayAccountId,
+        productConfig.id,
+        { accountNumber, ifscCode, beneficiaryName }
+      );
     }
 
-    // Update in database
-    merchant.bankDetails = {
-      accountNumber,
-      ifscCode,
-      beneficiaryName
-    };
+    merchant.bankDetails = { accountNumber, ifscCode, beneficiaryName };
     await merchant.save();
 
     res.json({
       success: true,
-      message: 'Bank details submitted successfully',
-      data: merchant.bankDetails
+      message: isDemoAccount ? 'Bank details saved (demo mode)' : 'Bank details submitted successfully'
     });
   } catch (error) {
     next(error);
@@ -186,75 +146,110 @@ const submitBankDetails = async (req, res, next) => {
 };
 
 /**
- * @desc    Handle Razorpay webhook for KYC updates
- * @route   POST /api/kyc/webhook
- * @access  Public (verified by signature)
+ * @desc    Upload KYC document
+ * @route   POST /api/kyc/upload-document/:merchantId
+ * @access  Private
  */
-const handleWebhook = async (req, res, next) => {
+const uploadKycDocument = async (req, res, next) => {
   try {
-    const signature = req.headers['x-razorpay-signature'];
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const merchant = await Merchant.findById(req.params.merchantId);
 
-    // Verify webhook signature
-    const isValid = razorpayService.verifyWebhookSignature(req.body, signature, secret);
-    
-    if (!isValid) {
-      console.error('Invalid webhook signature');
-      return res.status(400).json({
+    if (!merchant || !merchant.razorpayAccountId) {
+      return res.status(404).json({
         success: false,
-        message: 'Invalid signature'
+        message: 'Merchant not found or not registered with Razorpay'
       });
     }
 
-    const { event, payload } = req.body;
+    const type = req.body.type || req.body.purpose;
+    const file = req.file || req.files?.[0];
 
-    console.log('Webhook received:', event);
-
-    // Handle different webhook events
-    switch (event) {
-      case 'account.under_review':
-        await handleAccountUnderReview(payload);
-        break;
-      
-      case 'account.activated':
-        await handleAccountActivated(payload);
-        break;
-      
-      case 'account.suspended':
-        await handleAccountSuspended(payload);
-        break;
-      
-      case 'account.rejected':
-        await handleAccountRejected(payload);
-        break;
-      
-      case 'account.needs_clarification':
-        await handleAccountNeedsClarification(payload);
-        break;
-      
-      default:
-        console.log('Unhandled webhook event:', event);
+    if (!file || !type) {
+      return res.status(400).json({
+        success: false,
+        message: 'File and type required (form-data: file, type)'
+      });
     }
 
-    res.status(200).json({ received: true });
+    const isDemoAccount = merchant.razorpayAccountId.startsWith('demo_');
+
+    let response;
+    if (isDemoAccount) {
+      if (file.path && fs.existsSync(file.path)) {
+        try { fs.unlinkSync(file.path); } catch (_) {}
+      }
+      response = { id: `demo_doc_${Date.now()}`, demo: true };
+    } else {
+      const documentData = { file: file.path, purpose: type };
+      response = await razorpayService.uploadDocument(merchant.razorpayAccountId, documentData);
+    }
+
+    merchant.documents.push({
+      type,
+      url: response.demo ? '#' : `https://api.razorpay.com/v1/documents/${response.id}`,
+      uploadedAt: new Date(),
+      verified: false,
+      razorpayDocId: response.id
+    });
+    await merchant.save();
+
+    res.json({
+      success: true,
+      message: isDemoAccount ? 'Document saved (demo mode)' : 'Document uploaded successfully',
+      data: response
+    });
   } catch (error) {
-    console.error('Webhook Error:', error);
-    // Always return 200 to acknowledge receipt
-    res.status(200).json({ received: true, error: error.message });
+    next(error);
   }
 };
 
+/**
+ * @desc    Handle Razorpay webhook
+ * @route   POST /api/kyc/webhook
+ * @access  Public (verified by signature)
+ */
+const handleWebhook = async (req, res) => {
+  const signature = req.headers['x-razorpay-signature'];
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  const rawBody = req.body.toString();
+
+  if (!signature || !secret) {
+    return res.status(400).json({ status: 'missing_signature_or_secret' });
+  }
+
+  // Verify signature - MUST use raw body string as received
+  const isValid = razorpayService.verifyWebhookSignature(rawBody, signature, secret);
+  if (!isValid) {
+    return res.status(400).json({ status: 'verification_failed' });
+  }
+
+  const payload = JSON.parse(rawBody);
+  const event = payload.event;
+
+  switch (event) {
+    case 'account.activated':
+      await handleAccountActivated(payload);
+      break;
+    case 'account.rejected':
+      await handleAccountRejected(payload);
+      break;
+    case 'account.needs_clarification':
+      await handleAccountNeedsClarification(payload);
+      break;
+    case 'account.suspended':
+      await handleAccountSuspended(payload);
+      break;
+    case 'account.updated':
+      await handleAccountUpdated(payload);
+      break;
+    default:
+      console.log('Unhandled event:', event);
+  }
+
+  res.json({ status: 'ok' });
+};
+
 // Webhook event handlers
-async function handleAccountUnderReview(payload) {
-  const accountId = payload.account?.entity?.id;
-  if (!accountId) return;
-
-  await Merchant.findOneAndUpdate(
-    { razorpayAccountId: accountId },
-    { kycStatus: 'under_review' }
-  );
-}
-
 async function handleAccountActivated(payload) {
   const accountId = payload.account?.entity?.id;
   if (!accountId) return;
@@ -311,6 +306,21 @@ async function handleAccountNeedsClarification(payload) {
   );
 }
 
+async function handleAccountUpdated(payload) {
+  const accountId = payload.account?.entity?.id;
+  if (!accountId) return;
+
+  const razorpayData = await razorpayService.getAccountDetails(accountId);
+  const newStatus = razorpayService.mapKycStatus(razorpayData.status);
+
+  await Merchant.findOneAndUpdate(
+    { razorpayAccountId: accountId },
+    {
+      kycStatus: newStatus
+    }
+  );
+}
+
 /**
  * @desc    Refresh KYC status from Razorpay
  * @route   POST /api/kyc/refresh/:merchantId
@@ -327,18 +337,31 @@ const refreshKycStatus = async (req, res, next) => {
       });
     }
 
+    const isDemoAccount = merchant.razorpayAccountId.startsWith('demo_');
+
+    if (isDemoAccount) {
+      // Demo mode: return current DB status without calling Razorpay
+      return res.json({
+        success: true,
+        message: 'KYC status (demo mode)',
+        data: {
+          kycStatus: merchant.kycStatus,
+          razorpayStatus: 'demo',
+          isActive: merchant.isActive
+        }
+      });
+    }
+
     // Fetch latest from Razorpay
     const razorpayData = await razorpayService.getAccountDetails(merchant.razorpayAccountId);
-    
-    // Map and update status
     const newStatus = razorpayService.mapKycStatus(razorpayData.status);
     merchant.kycStatus = newStatus;
-    
+
     if (newStatus === 'activated') {
       merchant.isActive = true;
       merchant.kycDetails.verifiedAt = new Date();
     }
-    
+
     await merchant.save();
 
     res.json({
@@ -359,6 +382,7 @@ module.exports = {
   initiateKyc,
   getKycStatus,
   submitBankDetails,
+  uploadKycDocument,
   handleWebhook,
   refreshKycStatus
 };

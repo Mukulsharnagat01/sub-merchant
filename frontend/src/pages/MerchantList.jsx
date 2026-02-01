@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { 
-  Search, 
-  Plus, 
+import {
+  Search,
+  Plus,
   Filter,
   ChevronLeft,
   ChevronRight,
@@ -63,74 +63,66 @@ const MerchantList = () => {
     } else {
       params.delete('search');
     }
-    params.set('page', '1');
+    params.delete('page');
     setSearchParams(params);
   };
 
-  const handleStatusChange = (status) => {
-    setStatusFilter(status);
+  const handleFilterChange = (value) => {
+    setStatusFilter(value);
     const params = new URLSearchParams(searchParams);
-    if (status !== 'all') {
-      params.set('status', status);
+    if (value !== 'all') {
+      params.set('status', value);
     } else {
       params.delete('status');
     }
-    params.set('page', '1');
+    params.delete('page');
     setSearchParams(params);
   };
 
   const handlePageChange = (page) => {
     const params = new URLSearchParams(searchParams);
-    params.set('page', page.toString());
+    params.set('page', page);
     setSearchParams(params);
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Merchants</h1>
-          <p className="text-gray-600">Manage your sub-merchants and their KYC status</p>
-        </div>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">Merchants</h1>
         <Link
           to="/merchants/create"
-          className="inline-flex items-center px-4 py-2 bg-razorpay-blue text-white font-medium rounded-lg hover:bg-razorpay-blue/90 transition-colors"
+          className="flex items-center space-x-2 px-4 py-2 bg-razorpay-blue text-white rounded-lg hover:bg-razorpay-blue/90"
         >
-          <Plus className="w-5 h-5 mr-2" />
-          Add Merchant
+          <Plus className="w-4 h-4" />
+          <span>Add Merchant</span>
         </Link>
       </div>
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="flex flex-col md:flex-row gap-4">
-          {/* Search */}
-          <form onSubmit={handleSearch} className="flex-1">
+        <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
+          <form onSubmit={handleSearch} className="flex-1 w-full md:w-auto">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
-                type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by name, email, or contact..."
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                placeholder="Search by name or email..."
+                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
             </div>
           </form>
 
-          {/* Status Filter */}
-          <div className="flex items-center space-x-2">
-            <Filter className="w-5 h-5 text-gray-400" />
+          <div className="relative w-full md:w-48">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <select
               value={statusFilter}
-              onChange={(e) => handleStatusChange(e.target.value)}
-              className="px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
+              onChange={(e) => handleFilterChange(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent appearance-none"
             >
-              {statusOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+              {statusOptions.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
           </div>
@@ -143,88 +135,54 @@ const MerchantList = () => {
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary-500 border-t-transparent"></div>
           </div>
-        ) : merchants.length === 0 ? (
-          <div className="text-center py-16">
-            <Building2 className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No merchants found</h3>
-            <p className="text-gray-500 mb-4">
-              {search || statusFilter !== 'all' 
-                ? 'Try adjusting your filters'
-                : 'Get started by adding your first sub-merchant'}
-            </p>
-            {!search && statusFilter === 'all' && (
-              <Link
-                to="/merchants/create"
-                className="inline-flex items-center px-4 py-2 bg-razorpay-blue text-white font-medium rounded-lg hover:bg-razorpay-blue/90 transition-colors"
-              >
-                <Plus className="w-5 h-5 mr-2" />
-                Add Merchant
-              </Link>
-            )}
-          </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Merchant</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                  <th className="px-6 py-3"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {merchants.length === 0 ? (
                   <tr>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Business
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Contact
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Phone
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      KYC Status
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Created
-                    </th>
-                    <th className="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Action
-                    </th>
+                    <td colSpan="5" className="px-6 py-12 text-center text-gray-500">
+                      <Building2 className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+                      <p className="text-lg font-medium">No merchants found</p>
+                      <p className="text-sm">Create your first merchant to get started</p>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {merchants.map((merchant) => (
+                ) : (
+                  merchants.map(merchant => (
                     <tr key={merchant._id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
-                        <div>
-                          <p className="font-medium text-gray-900">{merchant.businessName}</p>
-                          <p className="text-sm text-gray-500 capitalize">{merchant.businessType.replace('_', ' ')}</p>
-                        </div>
+                        <div className="font-medium text-gray-900">{merchant.businessName}</div>
+                        <div className="text-sm text-gray-500 capitalize">{merchant.businessType}</div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div>
-                          <p className="text-gray-900">{merchant.contactName}</p>
-                          <p className="text-sm text-gray-500">{merchant.email}</p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-gray-700">
-                        {merchant.phone}
-                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">{merchant.email}</td>
                       <td className="px-6 py-4">
                         <KycStatusBadge status={merchant.kycStatus} />
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {new Date(merchant.createdAt).toLocaleDateString()}
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-6 py-4">
                         <Link
                           to={`/merchants/${merchant._id}`}
-                          className="text-primary-600 hover:text-primary-700 font-medium text-sm"
+                          className="text-sm text-primary-600 hover:text-primary-700 font-medium"
                         >
-                          View Details
+                          View
                         </Link>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  ))
+                )}
+              </tbody>
+            </table>
 
             {/* Pagination */}
             {pagination.pages > 1 && (
@@ -240,21 +198,30 @@ const MerchantList = () => {
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
-                  {Array.from({ length: Math.min(5, pagination.pages) }, (_, i) => {
+                  {[...Array(pagination.pages)].map((_, i) => {
                     const page = i + 1;
-                    return (
-                      <button
-                        key={page}
-                        onClick={() => handlePageChange(page)}
-                        className={`w-8 h-8 rounded-lg text-sm font-medium ${
-                          pagination.current === page
+                    if (
+                      page === 1 ||
+                      page === pagination.pages ||
+                      (page >= pagination.current - 1 && page <= pagination.current + 1)
+                    ) {
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => handlePageChange(page)}
+                          className={`w-8 h-8 rounded-lg text-sm font-medium ${pagination.current === page
                             ? 'bg-razorpay-blue text-white'
                             : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        {page}
-                      </button>
-                    );
+                            }`}
+                        >
+                          {page}
+                        </button>
+                      );
+                    }
+                    if (page === pagination.current - 2 || page === pagination.current + 2) {
+                      return <span key={page} className="text-gray-500">...</span>;
+                    }
+                    return null;
                   })}
                   <button
                     onClick={() => handlePageChange(pagination.current + 1)}

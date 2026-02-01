@@ -11,8 +11,10 @@ const createMerchant = async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      const msg = errors.array().map(e => `${e.path}: ${e.msg}`).join('; ');
       return res.status(400).json({
         success: false,
+        message: msg,
         errors: errors.array()
       });
     }
@@ -55,11 +57,24 @@ const createMerchant = async (req, res, next) => {
       });
     } catch (razorpayError) {
       console.error('Razorpay API Error:', razorpayError);
-      return res.status(400).json({
-        success: false,
-        message: 'Failed to create merchant on Razorpay',
-        error: razorpayError.error?.description || razorpayError.message
-      });
+      const errMsg = razorpayError.error?.description || razorpayError.message || String(razorpayError);
+
+      // Demo mode: save merchant to DB without Razorpay when API fails (for testing without Partner keys)
+      if (process.env.RAZORPAY_DEMO_MODE === 'true') {
+        razorpayAccount = {
+          id: `demo_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+        };
+        console.warn('Demo mode: saved merchant without Razorpay. Partner API keys required for production.');
+      } else {
+        const isAccessDenied = /access denied|unauthorized|forbidden/i.test(errMsg);
+        return res.status(400).json({
+          success: false,
+          message: errMsg || 'Failed to create merchant on Razorpay',
+          hint: isAccessDenied
+            ? 'Razorpay Partner/Connect API keys required. Add RAZORPAY_DEMO_MODE=true to backend .env to test without Razorpay.'
+            : undefined
+        });
+      }
     }
 
     // Create merchant in database
@@ -75,17 +90,12 @@ const createMerchant = async (req, res, next) => {
       phone,
       address,
       legalInfo,
-      bankDetails,
-      kycStatus: 'pending'
+      bankDetails
     });
 
     res.status(201).json({
       success: true,
-      message: 'Sub-merchant created successfully',
-      data: {
-        merchant,
-        razorpayAccountId: razorpayAccount.id
-      }
+      data: merchant
     });
   } catch (error) {
     next(error);
@@ -93,13 +103,13 @@ const createMerchant = async (req, res, next) => {
 };
 
 /**
- * @desc    Get merchant by ID
+ * @desc    Get merchant details
  * @route   GET /api/merchant/:id
  * @access  Private
  */
 const getMerchant = async (req, res, next) => {
   try {
-    const merchant = await Merchant.findById(req.params.id).populate('createdBy', 'name email');
+    const merchant = await Merchant.findById(req.params.id);
 
     if (!merchant) {
       return res.status(404).json({
@@ -108,22 +118,17 @@ const getMerchant = async (req, res, next) => {
       });
     }
 
-    // Fetch latest status from Razorpay if account exists
-    let razorpayData = null;
-    if (merchant.razorpayAccountId) {
-      try {
-        razorpayData = await razorpayService.getAccountDetails(merchant.razorpayAccountId);
-      } catch (err) {
-        console.error('Failed to fetch Razorpay data:', err.message);
-      }
+    // Check ownership
+    if (merchant.createdBy.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to view this merchant'
+      });
     }
 
     res.json({
       success: true,
-      data: {
-        merchant,
-        razorpayData
-      }
+      data: merchant
     });
   } catch (error) {
     next(error);
@@ -131,33 +136,29 @@ const getMerchant = async (req, res, next) => {
 };
 
 /**
- * @desc    Get all merchants (for logged-in user)
+ * @desc    Get all merchants for current user
  * @route   GET /api/merchant/list
  * @access  Private
  */
 const getMerchants = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, status, search } = req.query;
+    const { page = 1, limit = 10, status = 'all', search = '' } = req.query;
 
-    // Build query
     const query = { createdBy: req.user._id };
-
-    if (status && status !== 'all') {
+    if (status !== 'all') {
       query.kycStatus = status;
     }
-
     if (search) {
       query.$or = [
         { businessName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { contactName: { $regex: search, $options: 'i' } }
+        { email: { $regex: search, $options: 'i' } }
       ];
     }
 
     const merchants = await Merchant.find(query)
-      .sort({ createdAt: -1 })
+      .sort('-createdAt')
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(Number(limit));
 
     const total = await Merchant.countDocuments(query);
 
@@ -166,7 +167,7 @@ const getMerchants = async (req, res, next) => {
       data: {
         merchants,
         pagination: {
-          current: parseInt(page),
+          current: Number(page),
           pages: Math.ceil(total / limit),
           total
         }
@@ -178,7 +179,7 @@ const getMerchants = async (req, res, next) => {
 };
 
 /**
- * @desc    Update merchant details
+ * @desc    Update merchant
  * @route   PUT /api/merchant/:id
  * @access  Private
  */
@@ -201,13 +202,10 @@ const updateMerchant = async (req, res, next) => {
       });
     }
 
-    // Update in Razorpay if account exists
-    if (merchant.razorpayAccountId && req.body.updateRazorpay) {
+    // Update Razorpay account if needed
+    if (merchant.razorpayAccountId) {
       try {
-        await razorpayService.updateAccount(merchant.razorpayAccountId, {
-          legal_business_name: req.body.businessName,
-          contact_name: req.body.contactName
-        });
+        await razorpayService.updateAccount(merchant.razorpayAccountId, req.body);
       } catch (err) {
         console.error('Failed to update Razorpay account:', err.message);
       }

@@ -61,7 +61,10 @@ export const kycAPI = {
   initiate: (merchantId, data) => api.post(`/kyc/initiate/${merchantId}`, data),
   getStatus: (merchantId) => api.get(`/kyc/status/${merchantId}`),
   submitBankDetails: (merchantId, data) => api.post(`/kyc/bank-details/${merchantId}`, data),
-  refresh: (merchantId) => api.post(`/kyc/refresh/${merchantId}`)
+  refresh: (merchantId) => api.post(`/kyc/refresh/${merchantId}`),
+  uploadDocument: (merchantId, formData) => api.post(`/kyc/upload-document/${merchantId}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }) // New for document upload
 };
 
 export default api;

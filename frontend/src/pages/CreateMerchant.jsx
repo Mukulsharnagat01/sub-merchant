@@ -1,19 +1,20 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { 
-  Building2, 
-  User, 
-  Mail, 
-  Phone, 
+import {
+  Building2,
+  User,
+  Mail,
+  Phone,
   MapPin,
   FileText,
   CreditCard,
   ArrowLeft,
-  ArrowRight
+  ArrowRight,
+  Upload
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { merchantAPI } from '../services/api';
+import { merchantAPI, kycAPI } from '../services/api';
 
 const CreateMerchant = () => {
   const [step, setStep] = useState(1);
@@ -65,6 +66,9 @@ const CreateMerchant = () => {
       fieldsToValidate = ['businessName', 'businessType', 'businessCategory', 'contactName', 'email', 'phone'];
     } else if (step === 2) {
       fieldsToValidate = ['address.street', 'address.city', 'address.state', 'address.pincode'];
+    } else if (step === 3) {
+      // For documents, validate files if needed
+      // Note: File validation is client-side, but we can add custom logic
     }
 
     const isValid = await trigger(fieldsToValidate);
@@ -73,390 +77,299 @@ const CreateMerchant = () => {
     }
   };
 
-  const prevStep = () => {
-    setStep(step - 1);
-  };
+  const prevStep = () => setStep(step - 1);
 
   const onSubmit = async (data) => {
     setLoading(true);
     try {
-      const response = await merchantAPI.create(data);
-      toast.success('Merchant created successfully!');
-      navigate(`/merchants/${response.data.data.merchant._id}`);
+      // Build merchant payload (exclude file fields)
+      const { panFile, gstFile, ...merchantPayload } = data;
+      const response = await merchantAPI.create(merchantPayload);
+      const merchantId = response.data.data._id;
+
+      // Upload documents if provided
+      if (panFile?.[0]) {
+        const formData = new FormData();
+        formData.append('file', panFile[0]);
+        formData.append('type', 'pan');
+        await kycAPI.uploadDocument(merchantId, formData);
+      }
+      if (gstFile?.[0]) {
+        const formData = new FormData();
+        formData.append('file', gstFile[0]);
+        formData.append('type', 'gst_certificate');
+        await kycAPI.uploadDocument(merchantId, formData);
+      }
+
+      // Auto-initiate KYC after creation
+      try {
+        await kycAPI.initiate(merchantId, {});
+      } catch (kycErr) {
+        console.warn('KYC initiate optional:', kycErr?.response?.data?.message);
+      }
+
+      toast.success('Merchant created! KYC initiated. Check status on merchant details.');
+      navigate('/merchants');
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to create merchant');
+      const res = error.response?.data;
+      console.error('Create merchant error:', res || error.message);
+      let msg = res?.message || res?.errors?.map(e => e.msg).join(', ') || 'Failed to create merchant';
+      if (res?.hint) msg += ` — ${res.hint}`;
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
-  const steps = [
-    { number: 1, title: 'Business Details' },
-    { number: 2, title: 'Address' },
-    { number: 3, title: 'Legal & Bank' }
-  ];
-
   return (
-    <div className="max-w-3xl mx-auto">
-      {/* Header */}
-      <div className="mb-8">
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </button>
-        <h1 className="text-2xl font-bold text-gray-900">Create Sub-Merchant</h1>
-        <p className="text-gray-600">Fill in the details to onboard a new sub-merchant</p>
-      </div>
+    <div className="max-w-2xl mx-auto">
+      <div className="bg-white rounded-xl border border-gray-200 p-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-8">Create New Sub-Merchant</h2>
 
-      {/* Progress Steps */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          {steps.map((s, idx) => (
-            <div key={s.number} className="flex items-center">
-              <div className={`
-                flex items-center justify-center w-10 h-10 rounded-full font-medium
-                ${step >= s.number 
-                  ? 'bg-razorpay-blue text-white' 
-                  : 'bg-gray-200 text-gray-600'}
-              `}>
-                {s.number}
+        {/* Step Indicator */}
+        <div className="flex items-center justify-between mb-8">
+          {[1, 2, 3].map((s) => (
+            <div key={s} className="flex items-center">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${s === step ? 'bg-razorpay-blue text-white' : 'bg-gray-200 text-gray-600'
+                }`}>
+                {s}
               </div>
-              <span className={`ml-2 hidden sm:inline ${step >= s.number ? 'text-gray-900' : 'text-gray-500'}`}>
-                {s.title}
-              </span>
-              {idx < steps.length - 1 && (
-                <div className={`w-12 sm:w-24 h-1 mx-2 sm:mx-4 ${step > s.number ? 'bg-razorpay-blue' : 'bg-gray-200'}`} />
-              )}
+              {s < 3 && <div className="w-20 h-1 bg-gray-200" />}
             </div>
           ))}
         </div>
-      </div>
 
-      {/* Form */}
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          {/* Step 1: Business Details */}
-          {step === 1 && (
+        <form onSubmit={handleSubmit(onSubmit)}>
+          <div className={step !== 1 ? 'hidden' : ''}>
+            {/* Step 1: Business Details */}
             <div className="space-y-6">
-              <div className="flex items-center space-x-2 text-lg font-semibold text-gray-900 mb-6">
-                <Building2 className="w-5 h-5" />
-                <span>Business Details</span>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business Name</label>
+                <div className="relative">
+                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    {...register('businessName', { required: 'Business name is required' })}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="Enter business name"
+                  />
+                </div>
+                {errors.businessName && <p className="mt-1 text-sm text-red-600">{errors.businessName.message}</p>}
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Business Name *
-                  </label>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business Type</label>
+                <select
+                  {...register('businessType', { required: 'Business type is required' })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  {businessTypes.map(type => (
+                    <option key={type.value} value={type.value}>{type.label}</option>
+                  ))}
+                </select>
+                {errors.businessType && <p className="mt-1 text-sm text-red-600">{errors.businessType.message}</p>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business Category</label>
+                <select
+                  {...register('businessCategory', { required: 'Business category is required' })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  {businessCategories.map(cat => (
+                    <option key={cat.value} value={cat.value}>{cat.label}</option>
+                  ))}
+                </select>
+                {errors.businessCategory && <p className="mt-1 text-sm text-red-600">{errors.businessCategory.message}</p>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <input
-                    type="text"
-                    {...register('businessName', { required: 'Business name is required' })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    placeholder="Enter legal business name"
-                  />
-                  {errors.businessName && (
-                    <p className="mt-1 text-sm text-red-600">{errors.businessName.message}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Business Type *
-                  </label>
-                  <select
-                    {...register('businessType', { required: 'Business type is required' })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
-                  >
-                    {businessTypes.map((type) => (
-                      <option key={type.value} value={type.value}>{type.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Business Category *
-                  </label>
-                  <select
-                    {...register('businessCategory', { required: 'Business category is required' })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
-                  >
-                    {businessCategories.map((cat) => (
-                      <option key={cat.value} value={cat.value}>{cat.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    <User className="w-4 h-4 inline mr-1" />
-                    Contact Name *
-                  </label>
-                  <input
-                    type="text"
                     {...register('contactName', { required: 'Contact name is required' })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    placeholder="Full name"
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="Enter contact name"
                   />
-                  {errors.contactName && (
-                    <p className="mt-1 text-sm text-red-600">{errors.contactName.message}</p>
-                  )}
                 </div>
+                {errors.contactName && <p className="mt-1 text-sm text-red-600">{errors.contactName.message}</p>}
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    <Mail className="w-4 h-4 inline mr-1" />
-                    Email *
-                  </label>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <input
-                    type="email"
-                    {...register('email', { 
-                      required: 'Email is required',
-                      pattern: {
-                        value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                        message: 'Invalid email address'
-                      }
-                    })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    placeholder="business@example.com"
+                    {...register('email', { required: 'Email is required', pattern: { value: /^\S+@\S+$/i, message: 'Invalid email' } })}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="contact@business.com"
                   />
-                  {errors.email && (
-                    <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
-                  )}
                 </div>
+                {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>}
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    <Phone className="w-4 h-4 inline mr-1" />
-                    Phone Number *
-                  </label>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <input
-                    type="tel"
-                    {...register('phone', { 
-                      required: 'Phone is required',
-                      pattern: {
-                        value: /^[6-9]\d{9}$/,
-                        message: 'Enter valid 10-digit mobile number'
-                      }
-                    })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    {...register('phone', { required: 'Phone is required', pattern: { value: /^[0-9]{10}$/, message: 'Invalid phone' } })}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     placeholder="9876543210"
                   />
-                  {errors.phone && (
-                    <p className="mt-1 text-sm text-red-600">{errors.phone.message}</p>
-                  )}
                 </div>
+                {errors.phone && <p className="mt-1 text-sm text-red-600">{errors.phone.message}</p>}
               </div>
             </div>
-          )}
+          </div>
 
-          {/* Step 2: Address */}
-          {step === 2 && (
+          <div className={step !== 2 ? 'hidden' : ''}>
+            {/* Step 2: Address & Legal Info */}
             <div className="space-y-6">
-              <div className="flex items-center space-x-2 text-lg font-semibold text-gray-900 mb-6">
-                <MapPin className="w-5 h-5" />
-                <span>Business Address</span>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    {...register('address.street', { required: 'Street address is required' })}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="Enter street address"
+                  />
+                </div>
+                {errors.address?.street && <p className="mt-1 text-sm text-red-600">{errors.address.street.message}</p>}
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Street Address *
-                  </label>
-                  <input
-                    type="text"
-                    {...register('address.street', { required: 'Street address is required' })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    placeholder="Building, Street, Locality"
-                  />
-                  {errors.address?.street && (
-                    <p className="mt-1 text-sm text-red-600">{errors.address.street.message}</p>
-                  )}
-                </div>
-
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    City *
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
                   <input
-                    type="text"
                     {...register('address.city', { required: 'City is required' })}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     placeholder="City"
                   />
-                  {errors.address?.city && (
-                    <p className="mt-1 text-sm text-red-600">{errors.address.city.message}</p>
-                  )}
+                  {errors.address?.city && <p className="mt-1 text-sm text-red-600">{errors.address.city.message}</p>}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    State *
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
                   <input
-                    type="text"
                     {...register('address.state', { required: 'State is required' })}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     placeholder="State"
                   />
-                  {errors.address?.state && (
-                    <p className="mt-1 text-sm text-red-600">{errors.address.state.message}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Pincode *
-                  </label>
-                  <input
-                    type="text"
-                    {...register('address.pincode', { 
-                      required: 'Pincode is required',
-                      pattern: {
-                        value: /^\d{6}$/,
-                        message: 'Enter valid 6-digit pincode'
-                      }
-                    })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    placeholder="123456"
-                    maxLength={6}
-                  />
-                  {errors.address?.pincode && (
-                    <p className="mt-1 text-sm text-red-600">{errors.address.pincode.message}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Country
-                  </label>
-                  <input
-                    type="text"
-                    {...register('address.country')}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-100"
-                    value="India"
-                    disabled
-                  />
+                  {errors.address?.state && <p className="mt-1 text-sm text-red-600">{errors.address.state.message}</p>}
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* Step 3: Legal & Bank Details */}
-          {step === 3 && (
-            <div className="space-y-8">
-              {/* Legal Info */}
               <div>
-                <div className="flex items-center space-x-2 text-lg font-semibold text-gray-900 mb-6">
-                  <FileText className="w-5 h-5" />
-                  <span>Legal Information</span>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Pincode</label>
+                <input
+                  {...register('address.pincode', { required: 'Pincode is required', pattern: { value: /^\d{6}$/, message: 'Invalid pincode' } })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  placeholder="6-digit pincode"
+                />
+                {errors.address?.pincode && <p className="mt-1 text-sm text-red-600">{errors.address.pincode.message}</p>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">PAN Number</label>
+                  <div className="relative">
+                    <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      {...register('legalInfo.pan', { pattern: { value: /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/, message: 'Invalid PAN' } })}
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      placeholder="AAAAA9999A"
+                    />
+                  </div>
+                  {errors.legalInfo?.pan && <p className="mt-1 text-sm text-red-600">{errors.legalInfo.pan.message}</p>}
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      PAN Number
-                    </label>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">GST Number</label>
+                  <div className="relative">
+                    <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                     <input
-                      type="text"
-                      {...register('legalInfo.pan', {
-                        pattern: {
-                          value: /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/,
-                          message: 'Enter valid PAN (e.g., ABCDE1234F)'
-                        }
-                      })}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent uppercase"
-                      placeholder="ABCDE1234F"
-                      maxLength={10}
-                    />
-                    {errors.legalInfo?.pan && (
-                      <p className="mt-1 text-sm text-red-600">{errors.legalInfo.pan.message}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      GST Number
-                    </label>
-                    <input
-                      type="text"
-                      {...register('legalInfo.gst', {
-                        pattern: {
-                          value: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/,
-                          message: 'Enter valid GST number'
-                        }
-                      })}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent uppercase"
+                      {...register('legalInfo.gst', { pattern: { value: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/, message: 'Invalid GST' } })}
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                       placeholder="22AAAAA0000A1Z5"
-                      maxLength={15}
-                    />
-                    {errors.legalInfo?.gst && (
-                      <p className="mt-1 text-sm text-red-600">{errors.legalInfo.gst.message}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Bank Details */}
-              <div>
-                <div className="flex items-center space-x-2 text-lg font-semibold text-gray-900 mb-6">
-                  <CreditCard className="w-5 h-5" />
-                  <span>Bank Account Details</span>
-                  <span className="text-sm font-normal text-gray-500">(Optional)</span>
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Account Number
-                    </label>
-                    <input
-                      type="text"
-                      {...register('bankDetails.accountNumber')}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      placeholder="Account number"
                     />
                   </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      IFSC Code
-                    </label>
-                    <input
-                      type="text"
-                      {...register('bankDetails.ifscCode', {
-                        pattern: {
-                          value: /^[A-Z]{4}0[A-Z0-9]{6}$/,
-                          message: 'Enter valid IFSC code'
-                        }
-                      })}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent uppercase"
-                      placeholder="SBIN0001234"
-                      maxLength={11}
-                    />
-                    {errors.bankDetails?.ifscCode && (
-                      <p className="mt-1 text-sm text-red-600">{errors.bankDetails.ifscCode.message}</p>
-                    )}
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Beneficiary Name
-                    </label>
-                    <input
-                      type="text"
-                      {...register('bankDetails.beneficiaryName')}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      placeholder="Account holder name"
-                    />
-                  </div>
+                  {errors.legalInfo?.gst && <p className="mt-1 text-sm text-red-600">{errors.legalInfo.gst.message}</p>}
                 </div>
               </div>
             </div>
-          )}
+          </div>
+
+          <div className={step !== 3 ? 'hidden' : ''}>
+            {/* Step 3: Bank Details & Documents (updated with file uploads) */}
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
+                <div className="relative">
+                  <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    {...register('bankDetails.accountNumber', { pattern: { value: /^\d{9,18}$/, message: 'Invalid account number' } })}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="Enter account number"
+                  />
+                </div>
+                {errors.bankDetails?.accountNumber && <p className="mt-1 text-sm text-red-600">{errors.bankDetails.accountNumber.message}</p>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">IFSC Code</label>
+                  <input
+                    {...register('bankDetails.ifscCode', { pattern: { value: /^[A-Z]{4}0[A-Z0-9]{6}$/, message: 'Invalid IFSC' } })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="ABCD0123456"
+                  />
+                  {errors.bankDetails?.ifscCode && <p className="mt-1 text-sm text-red-600">{errors.bankDetails.ifscCode.message}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Beneficiary Name</label>
+                  <input
+                    {...register('bankDetails.beneficiaryName')}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="Account holder name"
+                  />
+                </div>
+              </div>
+
+              {/* Document Uploads (new) */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">PAN Document</label>
+                  <div className="relative">
+                    <Upload className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      type="file"
+                      {...register('panFile')}
+                      accept=".pdf,.jpg,.png"
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">GST Certificate</label>
+                  <div className="relative">
+                    <Upload className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      type="file"
+                      {...register('gstFile')}
+                      accept=".pdf,.jpg,.png"
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+
+                {/* Add more file inputs for other docs if needed */}
+              </div>
+            </div>
+          </div>
 
           {/* Navigation Buttons */}
           <div className="flex justify-between mt-8 pt-6 border-t border-gray-200">
@@ -502,8 +415,8 @@ const CreateMerchant = () => {
               </button>
             )}
           </div>
-        </div>
-      </form>
+        </form>
+      </div>
     </div>
   );
 };

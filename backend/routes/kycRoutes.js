@@ -1,16 +1,21 @@
 const express = require('express');
 const { body } = require('express-validator');
+const multer = require('multer');
 const router = express.Router();
 
 const {
   initiateKyc,
   getKycStatus,
   submitBankDetails,
+  uploadKycDocument,
   handleWebhook,
   refreshKycStatus
 } = require('../controllers/kycController');
 
 const { protect } = require('../middleware/auth');
+
+// Multer for document upload only (dest: uploads/)
+const upload = multer({ dest: 'uploads/' });
 
 // Validation rules
 const bankDetailsValidation = [
@@ -46,5 +51,6 @@ router.post('/initiate/:merchantId', stakeholderValidation, initiateKyc);
 router.get('/status/:merchantId', getKycStatus);
 router.post('/bank-details/:merchantId', bankDetailsValidation, submitBankDetails);
 router.post('/refresh/:merchantId', refreshKycStatus);
+router.post('/upload-document/:merchantId', upload.single('file'), uploadKycDocument);
 
 module.exports = router;

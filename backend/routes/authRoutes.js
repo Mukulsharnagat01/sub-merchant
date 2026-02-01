@@ -38,7 +38,7 @@ const loginValidation = [
 
 // Routes
 router.post('/register', registerValidation, register);
-router.post('/login', loginValidation, login);
+router.post('/login', loginValidation, login);    // Should print "function"
 router.get('/me', protect, getMe);
 router.put('/profile', protect, updateProfile);
 router.put('/password', protect, changePassword);

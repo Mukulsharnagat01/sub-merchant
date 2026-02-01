@@ -35,7 +35,12 @@ const createMerchantValidation = [
     .isEmail().withMessage('Please provide a valid email'),
   body('phone')
     .notEmpty().withMessage('Phone number is required')
-    .matches(/^[6-9]\d{9}$/).withMessage('Please provide a valid Indian phone number'),
+    .trim()
+    .custom((val) => {
+      const digits = (val || '').replace(/\D/g, '');
+      return digits.length >= 10 && /^[6-9]/.test(digits.slice(-10));
+    })
+    .withMessage('Please provide a valid 10-digit Indian phone number (e.g. 9876543210)'),
   body('address.pincode')
     .optional()
     .matches(/^\d{6}$/).withMessage('Please provide a valid 6-digit pincode'),

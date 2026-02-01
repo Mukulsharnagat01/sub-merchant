@@ -16,30 +16,30 @@ import Loading from './components/Loading';
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
-  
+
   if (loading) {
     return <Loading />;
   }
-  
+
   if (!user) {
     return <Navigate to="/login" replace />;
   }
-  
+
   return children;
 };
 
 // Public Route (redirects if logged in)
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
-  
+
   if (loading) {
     return <Loading />;
   }
-  
+
   if (user) {
     return <Navigate to="/dashboard" replace />;
   }
-  
+
   return children;
 };
 

@@ -7,7 +7,7 @@ const merchantSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
-  
+
   // Razorpay Account ID (returned after account creation)
   razorpayAccountId: {
     type: String,
@@ -87,7 +87,7 @@ const merchantSchema = new mongoose.Schema({
     clarificationReason: String
   },
 
-  // Documents
+  // Documents (updated to store uploaded docs metadata)
   documents: [{
     type: {
       type: String,
@@ -95,7 +95,8 @@ const merchantSchema = new mongoose.Schema({
     },
     url: String,
     uploadedAt: Date,
-    verified: Boolean
+    verified: Boolean,
+    razorpayDocId: String // From Razorpay response
   }],
 
   // Activation Status
@@ -115,7 +116,7 @@ const merchantSchema = new mongoose.Schema({
 });
 
 // Update timestamp on save
-merchantSchema.pre('save', function(next) {
+merchantSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
   next();
 });
