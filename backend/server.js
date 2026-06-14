@@ -67,14 +67,16 @@ app.use(errorHandler);
 
 // Start server
 const PORT = process.env.PORT || 5000;
+const portNumber = Number(PORT);
+const bind = Number.isNaN(portNumber) ? `Pipe ${PORT}` : `Port ${portNumber}`;
 
-const server = app.listen(PORT, () => {
+const server = app.listen(portNumber, () => {
   console.log(`
   ╔════════════════════════════════════════════════╗
   ║                                                ║
   ║   🚀 Razorpay KYC Server Running!              ║
   ║                                                ║
-  ║   Port: ${PORT}                                   ║
+  ║   Port: ${portNumber}                                   ║
   ║   Environment: ${process.env.NODE_ENV || 'development'}                  ║
   ║                                                ║
   ║   Endpoints:                                   ║
@@ -84,6 +86,19 @@ const server = app.listen(PORT, () => {
   ║                                                ║
   ╚════════════════════════════════════════════════╝
   `);
+});
+
+server.on('error', (error) => {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ ${bind} is already in use. Please stop the process using this port or set a different PORT in .env.`);
+    process.exit(1);
+  }
+
+  throw error;
 });
 
 // Graceful shutdown - release port when nodemon/process restarts
