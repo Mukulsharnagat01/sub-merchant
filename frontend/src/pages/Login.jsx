@@ -83,6 +83,7 @@ const Login = () => {
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="email"
+                  autoComplete="email"
                   {...register('email', {
                     required: 'Email is required',
                     pattern: {
@@ -107,6 +108,7 @@ const Login = () => {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
                   {...register('password', {
                     required: 'Password is required',
                     minLength: {

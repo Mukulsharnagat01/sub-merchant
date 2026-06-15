@@ -98,6 +98,7 @@ const Register = () => {
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="text"
+                  autoComplete="name"
                   {...register('name', {
                     required: 'Name is required',
                     minLength: {
@@ -122,6 +123,7 @@ const Register = () => {
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="email"
+                  autoComplete="email"
                   {...register('email', {
                     required: 'Email is required',
                     pattern: {
@@ -146,6 +148,7 @@ const Register = () => {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
                   {...register('password', {
                     required: 'Password is required',
                     minLength: {
@@ -177,6 +180,7 @@ const Register = () => {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="password"
+                  autoComplete="new-password"
                   {...register('confirmPassword', {
                     required: 'Please confirm your password',
                     validate: value => value === password || 'Passwords do not match'
