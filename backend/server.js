@@ -27,12 +27,16 @@ const allowedOrigins = [
   'http://127.0.0.1:5174'
 ].filter(Boolean);
 
+const isAllowedRenderOrigin = (origin) => {
+  return /^https?:\/\/[A-Za-z0-9-]+\.onrender\.com$/.test(origin);
+};
+
 app.use(cors({
   origin: (origin, cb) => {
     // Allow requests with no origin (e.g., mobile apps, curl)
     if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-    return cb(new Error('CORS policy: Origin not allowed'), false);
+    if (allowedOrigins.includes(origin) || isAllowedRenderOrigin(origin)) return cb(null, true);
+    return cb(new Error(`CORS policy: Origin not allowed: ${origin}`), false);
   },
   credentials: true,
   preflightContinue: false,
