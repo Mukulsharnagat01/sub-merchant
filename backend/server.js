@@ -15,9 +15,12 @@ const app = express();
 // Connect to MongoDB
 connectDB();
 
-// Middleware - allow common dev ports (5173, 5174) and FRONTEND_URL
+// Middleware - allow common dev ports (5173, 5174) and frontend origins from env
+// Support a single FRONTEND_URL or comma-separated FRONTEND_URLS for multiple domains
+const envFrontend = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || '';
+const envOrigins = envFrontend.split(',').map(s => s.trim()).filter(Boolean);
 const allowedOrigins = [
-  process.env.FRONTEND_URL,
+  ...envOrigins,
   'http://localhost:5173',
   'http://localhost:5174',
   'http://127.0.0.1:5173',
@@ -26,13 +29,14 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      cb(null, origin || allowedOrigins[0]);
-    } else {
-      cb(null, false);
-    }
+    // Allow requests with no origin (e.g., mobile apps, curl)
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error('CORS policy: Origin not allowed'), false);
   },
-  credentials: true
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 200
 }));
 
 // Body parser - raw for webhooks, json for everything else
