@@ -58,6 +58,14 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Root route for platform / browser checks
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Razorpay KYC Backend Running Successfully'
+  });
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
