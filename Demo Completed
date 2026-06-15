@@ -138,7 +138,7 @@ npm run dev
 
 ## Tech Stack
 
-- **Backend:** Node.js, Express, MongoDB, Razorpay API
+- **Backend:** Node.js, Express, MongoDB, Razorpay API, Webhooks
 - **Frontend:** React, Vite, Tailwind CSS, React Router, React Hook Form
 - **Auth:** JWT
 
