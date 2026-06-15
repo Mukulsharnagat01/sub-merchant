@@ -10,6 +10,7 @@ if (!atlasUri) {
   console.warn('⚠️ MONGODB_URI is not set. Falling back to local MongoDB:', DEFAULT_LOCAL_URI);
 }
 
+
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(uri, {

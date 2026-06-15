@@ -53,7 +53,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/merchant', merchantRoutes);
 app.use('/api/kyc', kycRoutes);
 
-// Health check route
+// Health check routee
 app.get('/api/health', (req, res) => {
   res.json({
     success: true,
